@@ -1,13 +1,16 @@
 #include "FileTree.h"
 #include <stdexcept>
 #include <vector>
+#include <queue>
 #include <iostream>
+
 
 extern "C" {
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <errno.h>
 }
 
 std::string concatenatePath(const std::string &path, const std::string &entry);
@@ -131,32 +134,39 @@ void FileTree::buildTree()
         throw std::runtime_error(std::string("Could not stat root path: ") + root_path);
     }
 
-    ft_root = std::make_shared<FileTreeNode>(FileTreeNode(std::weak_ptr<FileTreeNode>(), FileInfo("", root_path, stat_buf)));
+    ft_root = std::make_shared<FileTreeNode>(
+                FileTreeNode(std::weak_ptr<FileTreeNode>(),
+                             FileInfo("", root_path, stat_buf)));
+
     std::cout << "ft_root: " << ft_root << std::endl;
-    populateEntries(ft_root);
+
+    /* If its not a directory, there is nothing to do */
+    if(!ft_root->entryInfo().isDirectory())
+    {
+        throw std::runtime_error(std::string("Path is not a directory ('" + root_path + "')"));
+    }
+
+    processDir_rec(ft_root);
+    
 }
 
-void FileTree::populateEntries(std::shared_ptr<FileTreeNode> &node)
+void FileTree::processDir_rec(std::shared_ptr<FileTreeNode> &node)
 {
-    /* If its not a directory, there is nothing to do */
-    if(!node || !node->entryInfo().isDirectory())
-        return;
-
+    struct stat stat_buf;
     std::string fullPath {node->entryInfo().absolutePath()};
     DIR *dir = opendir(fullPath.c_str());
     if(!dir)
     {
+        std::cout << "Cannot open: '" << fullPath << "' with error: " << errno << std::endl;
         node->entryInfo().setErrorStatus(ErrorStatus::CannotOpen);
         return;
     }
 
     struct dirent *dirEntry = nullptr;
-    struct stat stat_buf;
     while( (dirEntry = readdir(dir)) != nullptr )
     {
         if(dirEntry->d_name[0] == '.' && (dirEntry->d_name[1] == '\0' || dirEntry->d_name[1] == '.'))
             continue;
-
         int ret_val = stat(concatenatePath(fullPath, dirEntry->d_name).c_str(), &stat_buf);
 
         std::shared_ptr<FileTreeNode> new_node =
@@ -165,10 +175,20 @@ void FileTree::populateEntries(std::shared_ptr<FileTreeNode> &node)
         insert_count++;
 
         if(ret_val)
+        {
+            std::cout << "Could not stat '" << new_node->entryInfo().getName() << "'" << std::endl;
             new_node->entryInfo().setErrorStatus(ErrorStatus::CannotStat);
+        }
+    }
 
-        if(new_node->entryInfo().isDirectory())
-            populateEntries(new_node);
+    closedir(dir);
+
+    for(auto node_itr : node->children())
+    {
+        if(node_itr->entryInfo().isDirectory())
+        {
+            processDir_rec(node_itr);
+        }
     }
 }
 

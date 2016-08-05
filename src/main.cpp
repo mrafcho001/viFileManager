@@ -7,7 +7,7 @@ using namespace std;
 int main(int argc, char *argv[])
 {
     std::unique_ptr<FileTree> tree;
-    string path{"C:\\temp"};
+    string path{"/lib"};
     cout << "Path: " << path << endl;
     try {
         tree = std::make_unique<FileTree>(path);
@@ -20,7 +20,9 @@ int main(int argc, char *argv[])
 
     cout << "Succesfully Opened dir: " << path << endl;
 
-    tree->printTree();
+    //tree->printTree();
+
+    cout << "Scanned " << tree->insert_count << " files." << endl;
 
     return 0;
 }

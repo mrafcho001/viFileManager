@@ -14,10 +14,11 @@ public:
 
     class FileTreeNode;
     class FileInfo;
+    int insert_count{0};
 private:
     void printTreeRecursive(std::shared_ptr<FileTreeNode> root, int level);
     void buildTree();
-    void populateEntries(std::shared_ptr<FileTreeNode> &node);
+    void processDir_rec(std::shared_ptr<FileTreeNode> &node);
 
     std::string root_path;
     std::shared_ptr<FileTreeNode> ft_root{nullptr};
