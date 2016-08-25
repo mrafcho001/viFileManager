@@ -12,6 +12,8 @@ public:
 
     bool isValid() const;
 
+    bool isNumeric() const;
+
     void fromNCurses(int ch);
 
     char getChar() const;

@@ -1,4 +1,4 @@
-#include <Key.h>
+#include "Key.h"
 
 
 bool Key::isRegularKey() const
@@ -9,7 +9,7 @@ bool Key::isRegularKey() const
     return false;
 }
 
-bool Key::isRegularKey() const
+bool Key::isValid() const
 {
     return (key_code != -1);
 }
@@ -23,4 +23,9 @@ void Key::fromNCurses(int ch)
 char Key::getChar() const
 {
     return (char)key_code;
+}
+
+bool Key::isNumeric() const
+{
+    return (key_code >= '0' && key_code <= '9');
 }

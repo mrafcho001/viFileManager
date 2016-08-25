@@ -65,7 +65,10 @@ private:
         STMStateRegister(const STM_weak_ptr &stm, const Key &input);
         virtual void processInput(const Key &input);
     private:
-        char reg;
+        bool isValidRegister(const Key &input) const;
+        char reg{-1};
+        bool received_leading_quote{false};
+        bool capture_done{false};
     };
 
     class STMStateRepetition : public STMState
@@ -85,7 +88,7 @@ private:
         STMStateCommand(const STM_weak_ptr &stm, const Key &input);
         virtual void processInput(const Key &input);
     private:
-        CECommand command;
+        //CECommand command;
     };
 
     class STMStateInvalid : public STMState
@@ -207,11 +210,82 @@ void CommandEngine::CEStateMachine::STMStateInit::processInput(const Key &input)
         if(input.isValid() && input.isRegularKey())
         {
             if(input.getChar() == '"')
-                stm_ptr->transition(std::make_unique<STMStateRegister>(stm));
+                stm_ptr->transition(std::make_unique<STMStateRegister>(stm, input));
             if(input.getChar() >= '1' && input.getChar() <= '9')
                 stm_ptr->transition(std::make_unique<STMStateRepetition>(stm, input));
             else
                 stm_ptr->transition(std::make_unique<STMStateCommand>(stm, input));
         }
     }
+}
+
+CommandEngine::CEStateMachine::STMStateRegister::STMStateRegister(const STM_weak_ptr &stm) :
+    STMState(stm)
+{
+}
+
+CommandEngine::CEStateMachine::STMStateRegister::STMStateRegister(const STM_weak_ptr &stm, const Key &input) :
+    STMState(stm)
+{
+    processInput(input);
+}
+
+void CommandEngine::CEStateMachine::STMStateRegister::processInput(const Key &input)
+{
+    if(!received_leading_quote && input.getChar() == '"')
+    {
+        received_leading_quote = true;
+    }
+    else if(auto stm_ptr = stm.lock())
+    {
+        if(!capture_done)
+        {
+            if(isValidRegister(input))
+            {
+                reg = input.getChar();
+                stm_ptr->registerAcquired(reg);
+                capture_done = true;
+            }
+            else
+                stm_ptr->transition(std::make_unique<STMStateInvalid>(stm, input));
+        }
+        else
+        {
+            if(input.isNumeric())
+                stm_ptr->transition(std::make_unique<STMStateRepetition>(stm, input));
+            else
+                stm_ptr->transition(std::make_unique<STMStateCommand>(stm, input));
+        }
+    }
+}
+
+bool CommandEngine::CEStateMachine::STMStateRegister::isValidRegister(const Key &input) const
+{
+    if(!input.isValid() || !input.isRegularKey())
+        return false;
+
+    char value = input.getChar();
+
+    if((value >= '0' && value <= '9') ||
+       (value >= 'A' && value <= 'Z') ||
+       (value >= 'a' && value <= 'z'))
+        return true;
+
+    switch(value)
+    {
+    case '"':
+    case '-':
+    case ':':
+    case '.':
+    case '%':
+    case '#':
+    case '=':
+    case '*':
+    case '+':
+    case '~':
+    case '_':
+    case '/':
+        return true;
+    }
+    return false;
 }
