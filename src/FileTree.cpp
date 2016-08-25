@@ -81,11 +81,49 @@ FileTree::FileTree(const std::string &root):
     {
         throw std::runtime_error(std::string("Path is not a directory: '") + root + "'");
     }
+}
+void FileTree::performScan()
+{
+    struct stat stat_buf;
 
-    buildTree();
+    if(ft_root)
+    {
+        /* TODO: Delete tree */
+        
+        resetStatistics();
+    }
+
+    int ret_val = stat(root_path.c_str(), &stat_buf);
+    if(ret_val)
+    {
+        throw std::runtime_error(std::string("Could not stat root path: ") + root_path);
+    }
+
+    ft_root = std::make_shared<FileTreeNode>(
+                FileTreeNode(std::weak_ptr<FileTreeNode>(),
+                             FileInfo("", root_path, stat_buf)));
+
+
+    /* If its not a directory, there is nothing to do */
+    if(!ft_root->entryInfo().isDirectory())
+    {
+        throw std::runtime_error(std::string("Path is not a directory ('" + root_path + "')"));
+    }
+
+    // Save Dev Id of root
+    if(!crossFS)
+        rootDevID = stat_buf.st_dev;
+
+    processDirRecursive(ft_root);
 }
 
-bool FileTree::isDir(std::string &root)
+void FileTree::crossFileSystems(bool flag)
+{
+    crossFS = flag;
+}
+
+
+bool FileTree::isDir(const std::string &root)
 {
     struct stat stat_buf;
     int ret_val = stat(root.c_str(), &stat_buf);
@@ -106,6 +144,95 @@ void FileTree::printTree()
     printTreeRecursive(ft_root, 1);
 }
 
+
+unsigned int FileTree::getTotalEntries() const
+{
+    return statisticsFileCount + statisticsDirCount + statisticsStatErrors;
+}
+
+unsigned int FileTree::getFileCount() const
+{
+    return statisticsFileCount;
+}
+
+unsigned int FileTree::getDirectoryCount() const
+{
+    return statisticsDirCount;
+}
+
+unsigned int FileTree::getStatErrorCount() const
+{
+    return statisticsStatErrors;
+}
+
+void FileTree::processDirRecursive(std::shared_ptr<FileTreeNode> &node)
+{
+    std::queue<std::shared_ptr<FileTreeNode>> dirQueue;
+    dirQueue.push(node);
+
+    struct dirent *dirEntry = nullptr;
+
+    while( !dirQueue.empty() )
+    {
+        auto dirNode = dirQueue.front();
+        dirQueue.pop();
+
+        std::string fullPath {dirNode->entryInfo().absolutePath()};
+        struct stat stat_buf;
+        DIR *dir = opendir(fullPath.c_str());
+        if(!dir)
+        {
+            std::cout << "Cannot open: '" << fullPath << "' with error: " << errno << std::endl;
+            dirNode->entryInfo().setErrorStatus(ErrorStatus::CannotOpen);
+            return;
+        }
+
+        while( (dirEntry = readdir(dir)) != nullptr )
+        {
+            if(dirEntry->d_name[0] == '.' && (dirEntry->d_name[1] == '\0' || dirEntry->d_name[1] == '.'))
+                continue;
+            int ret_val = stat(concatenatePath(fullPath, dirEntry->d_name).c_str(), &stat_buf);
+
+            std::shared_ptr<FileTreeNode> new_node =
+                    std::make_shared<FileTreeNode>(dirNode, FileInfo(std::string(dirEntry->d_name), fullPath, stat_buf));
+            dirNode->addEntry(new_node);
+
+            if(ret_val)
+            {
+                std::cout << "Could not stat '" << new_node->entryInfo().getName() << "'" << std::endl;
+                new_node->entryInfo().setErrorStatus(ErrorStatus::CannotStat);
+                statisticsStatErrors++;
+            }
+            else
+            {
+                if(new_node->entryInfo().isDirectory())
+                {
+                    statisticsDirCount++;
+
+                    if(crossFS || stat_buf.st_dev == rootDevID)
+                    {
+                        // Append directory for processing if on same dev or crossFS
+                        // scanning is allowed
+                        dirQueue.push(new_node);
+                    }
+                }
+                else
+                {
+                    statisticsFileCount++;
+                }
+            }
+        }
+        closedir(dir);
+    }
+}
+
+void FileTree::resetStatistics()
+{
+    statisticsFileCount   = 0;
+    statisticsDirCount    = 0;
+    statisticsStatErrors  = 0;
+}
+
 void FileTree::printTreeRecursive(std::shared_ptr<FileTree::FileTreeNode> root, int level)
 {
     std::string indentation((size_t)level*2, (char)' ');
@@ -116,83 +243,7 @@ void FileTree::printTreeRecursive(std::shared_ptr<FileTree::FileTreeNode> root, 
         if(it->entryInfo().isDirectory())
             printTreeRecursive(it, level+1);
     }
-
 }
-
-void FileTree::buildTree()
-{
-    struct stat stat_buf;
-
-    if(ft_root)
-    {
-        /* TODO: Delete tree */
-    }
-
-    int ret_val = stat(root_path.c_str(), &stat_buf);
-    if(ret_val)
-    {
-        throw std::runtime_error(std::string("Could not stat root path: ") + root_path);
-    }
-
-    ft_root = std::make_shared<FileTreeNode>(
-                FileTreeNode(std::weak_ptr<FileTreeNode>(),
-                             FileInfo("", root_path, stat_buf)));
-
-    std::cout << "ft_root: " << ft_root << std::endl;
-
-    /* If its not a directory, there is nothing to do */
-    if(!ft_root->entryInfo().isDirectory())
-    {
-        throw std::runtime_error(std::string("Path is not a directory ('" + root_path + "')"));
-    }
-
-    processDir_rec(ft_root);
-    
-}
-
-void FileTree::processDir_rec(std::shared_ptr<FileTreeNode> &node)
-{
-    struct stat stat_buf;
-    std::string fullPath {node->entryInfo().absolutePath()};
-    DIR *dir = opendir(fullPath.c_str());
-    if(!dir)
-    {
-        std::cout << "Cannot open: '" << fullPath << "' with error: " << errno << std::endl;
-        node->entryInfo().setErrorStatus(ErrorStatus::CannotOpen);
-        return;
-    }
-
-    struct dirent *dirEntry = nullptr;
-    while( (dirEntry = readdir(dir)) != nullptr )
-    {
-        if(dirEntry->d_name[0] == '.' && (dirEntry->d_name[1] == '\0' || dirEntry->d_name[1] == '.'))
-            continue;
-        int ret_val = stat(concatenatePath(fullPath, dirEntry->d_name).c_str(), &stat_buf);
-
-        std::shared_ptr<FileTreeNode> new_node =
-                std::make_shared<FileTreeNode>(node, FileInfo(std::string(dirEntry->d_name), fullPath, stat_buf));
-        node->addEntry(new_node);
-        insert_count++;
-
-        if(ret_val)
-        {
-            std::cout << "Could not stat '" << new_node->entryInfo().getName() << "'" << std::endl;
-            new_node->entryInfo().setErrorStatus(ErrorStatus::CannotStat);
-        }
-    }
-
-    closedir(dir);
-
-    for(auto node_itr : node->children())
-    {
-        if(node_itr->entryInfo().isDirectory())
-        {
-            processDir_rec(node_itr);
-        }
-    }
-}
-
-
 
 
 

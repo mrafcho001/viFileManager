@@ -1,6 +1,7 @@
 #include <iostream>
 #include "FileTree.h"
 #include <stdexcept>
+#include <chrono>
 
 using namespace std;
 
@@ -18,11 +19,17 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    cout << "Succesfully Opened dir: " << path << endl;
+    tree->crossFileSystems(false);
 
-    //tree->printTree();
+    auto start = chrono::system_clock::now();
+    tree->performScan();
+    auto end = chrono::system_clock::now();
+    auto duration = chrono::duration_cast<chrono::milliseconds>(end-start); 
 
-    cout << "Scanned " << tree->insert_count << " files." << endl;
+    cout << "Scan took: " << duration.count() << endl;
+    cout << "Scanned Total: " << tree->getTotalEntries()
+         << ", (F/D): " << tree->getFileCount() << "/" << tree->getDirectoryCount()
+         << " with " << tree->getStatErrorCount() << " stat errors." << endl;
 
     return 0;
 }
